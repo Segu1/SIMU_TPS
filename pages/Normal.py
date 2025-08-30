@@ -1,5 +1,5 @@
 import dash
-from dash import callback, Output, Input, html, dcc
+from dash import callback, Output, Input, html, dcc, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import GeneradorDeDistribuciones
@@ -71,12 +71,19 @@ layout = html.Div([
     number_of_data,
     media,
     desv_estandar,
+    # NEW: botón de descarga centrado
+    html.Div(
+        dbc.Button("Descargar CSV", id="btn_download_normal", color="success", className="rounded-pill px-4"),
+        className="text-center my-2"
+    ),
+    dcc.Download(id="download_csv_normal"),
     msj_error,
     dcc.Graph(id="histograma", className="inline-block"),
     div
 ], className="p-3")
 
 @callback(
+    Output("download_csv_normal", "data"),
     Output("table", "children", allow_duplicate=True),
     Output("mensaje_error", "children", allow_duplicate=True),
     Output("histograma", "figure", allow_duplicate=True),
@@ -84,42 +91,48 @@ layout = html.Div([
     Input("data_input_media", "value"),
     Input("data_input_desv_estandar", "value"),
     Input("data_input_n_normal", "value"),
-    prevent_initial_call=True
+    Input("btn_download_normal", "n_clicks"),   # <-- ESCUCHÁ EL BOTÓN
+    prevent_initial_call=True           # opcional: render inicial
 )
-def update_histogram(bins, media, desv_estandar, n):
-    # Normalizamos n
+def update_histogram(bins, media, desv_estandar, n, n_clicks):
+    # Normalizar n
     try:
         n = int(n)
     except (TypeError, ValueError):
         n = 0
 
-    empty_fig = go.Figure()  # figura vacía válida
-    empty_table = []         # sin hijos en el div "table"
+    empty_fig = go.Figure()
+    empty_table = []
+    download = no_update  # por defecto NO descargamos
 
+    # Validaciones (devolvé SIEMPRE 4 valores en el mismo orden)
     if n < 1:
         msj = "La cantidad de valores debe ser mayor o igual que 1"
-        return empty_table, msj, empty_fig
+        return download, empty_table, msj, empty_fig
 
     if media is None or desv_estandar is None:
-        return empty_table, "", empty_fig
+        return download, empty_table, "", empty_fig
 
-    #if desv_estandar == 0:
-       # msj = "La desviación debe ser mayor que cero"
-       # return empty_table, msj, empty_fig
+    if desv_estandar <= 0:
+        msj = "La desviación estándar debe ser mayor que 0"
+        return download, empty_table, msj, empty_fig
 
     # Datos y figura
     valores = GeneradorDeDistribuciones.generar_normal(media, desv_estandar, n)
     data = pd.DataFrame({"valores": valores})
+
     fig = px.histogram(
         data,
         x="valores",
         nbins=bins,
-        title=f"Histograma de la dist. normal, con {bins} intervalo, media {media}, desviación estandar {desv_estandar}"
-              f" y n={n:,} datos",
+        title=f"Histograma de la dist. normal, con {bins} intervalos, media {media}, "
+              f"desviación estándar {desv_estandar} y n={n:,} datos",
     )
 
-    # Ojo: no pises el nombre de la función importada
     tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins)
 
-    # ORDEN correcto: (tabla, mensaje, figura)
-    return tabla_comp, "", fig
+    # Disparar descarga SOLO si el trigger fue el botón
+    if dash.ctx.triggered_id == "btn_download_normal" and n_clicks:
+        download = dcc.send_data_frame(data.to_csv, "normal_datos.csv", index=False)
+
+    return download, tabla_comp, "", fig

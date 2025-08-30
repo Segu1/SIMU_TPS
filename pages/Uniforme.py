@@ -1,5 +1,5 @@
 import dash
-from dash import callback, Output, Input, State, html, dcc, no_update, ctx  # NEW: State, ctx
+from dash import callback, Output, Input, html, dcc, no_update, ctx  # NEW: State, ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import plotly.express as px
@@ -80,7 +80,7 @@ layout = html.Div([
         className="text-center my-2"
     ),
 
-    dcc.Download(id="download_csv"),
+    dcc.Download(id="download_csv_uniforme"),
 
     msj_error,
     dcc.Graph(id="histograma", className="inline-block"),
@@ -89,15 +89,16 @@ layout = html.Div([
 
 
 @callback(
-    Output("download_csv", "data"),
-    Output("table", "children"),
-    Output("mensaje_error", "children"),
-    Output("histograma", "figure"),
+    Output("download_csv_uniforme", "data"),
+    Output("table", "children", allow_duplicate=True),
+    Output("mensaje_error", "children", allow_duplicate=True),
+    Output("histograma", "figure", allow_duplicate=True),
     Input("bins-slider", "value"),
     Input("data_input_A", "value"),
     Input("data_input_B", "value"),
     Input("data_input_n", "value"),
-    Input("btn_download", "n_clicks"),     # NEW: botón como Input
+    Input("btn_download", "n_clicks"),
+    prevent_initial_call=True
 )
 def update_histogram(bins, a, b, n, n_clicks):
     # Normalizar n
