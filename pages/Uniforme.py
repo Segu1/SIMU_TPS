@@ -1,11 +1,12 @@
 import dash
-from dash import callback, Output, Input, html, dcc
+from dash import callback, Output, Input, State, html, dcc, no_update, ctx  # NEW: State, ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-import GeneradorDeDistribuciones
-import GenerarTabla
 import plotly.express as px
 import pandas as pd
+
+import GeneradorDeDistribuciones
+import GenerarTabla
 
 # 👇 REGISTRO CORRECTO DE LA PÁGINA (sin el prefijo global)
 dash.register_page(
@@ -28,33 +29,34 @@ number_of_data = dbc.InputGroup([
         required=True,
         className="mb-2"
     )
-], className="")
+])
 
 A = dbc.InputGroup([
     dbc.Label("A: "),
     dbc.Input(
-    id="data_input_A",
-    type="number",
-    step="any",
-    value=0,
-    required=True,
-    className="mb-2"
-)])
+        id="data_input_A",
+        type="number",
+        step="any",
+        value=0,
+        required=True,
+        className="mb-2"
+    )
+])
 
 B = dbc.InputGroup([
     dbc.Label("B: "),
     dbc.Input(
-    id="data_input_B",
-    type="number",
-    step="any",
-    value=0,
-    required=True,
-    className="mb-2"
-)])
+        id="data_input_B",
+        type="number",
+        step="any",
+        value=1,   # SUGERENCIA: 1 para que A < B por defecto
+        required=True,
+        className="mb-2"
+    )
+])
 
 msj_error = html.P(id="mensaje_error", className="text-danger")
 div = html.Div(id="table")
-
 
 layout = html.Div([
     html.H1(
@@ -71,12 +73,23 @@ layout = html.Div([
     number_of_data,
     A,
     B,
+
+    # NEW: botón de descarga centrado
+    html.Div(
+        dbc.Button("Descargar CSV", id="btn_download", color="success", className="rounded-pill px-4"),
+        className="text-center my-2"
+    ),
+
+    dcc.Download(id="download_csv"),
+
     msj_error,
     dcc.Graph(id="histograma", className="inline-block"),
     div
 ], className="p-3")
 
+
 @callback(
+    Output("download_csv", "data"),
     Output("table", "children"),
     Output("mensaje_error", "children"),
     Output("histograma", "figure"),
@@ -84,40 +97,54 @@ layout = html.Div([
     Input("data_input_A", "value"),
     Input("data_input_B", "value"),
     Input("data_input_n", "value"),
+    Input("btn_download", "n_clicks"),     # NEW: botón como Input
 )
-def update_histogram(bins, a, b, n):
-    # Normalizamos n
+def update_histogram(bins, a, b, n, n_clicks):
+    # Normalizar n
     try:
         n = int(n)
     except (TypeError, ValueError):
         n = 0
 
-    empty_fig = go.Figure()  # figura vacía válida
-    empty_table = []         # sin hijos en el div "table"
+    empty_fig = go.Figure()
+    empty_table = []
+    download = no_update  # por defecto NO descargamos
 
+    # Validaciones
     if n < 1:
         msj = "La cantidad de valores debe ser mayor o igual que 1"
-        return empty_table, msj, empty_fig
+        return download, empty_table, msj, empty_fig
 
     if a is None or b is None:
-        return empty_table, "", empty_fig
+        return download, empty_table, "", empty_fig
 
     if a >= b:
         msj = "B debe ser mayor que A"
-        return empty_table, msj, empty_fig
+        return download, empty_table, msj, empty_fig
 
     # Datos y figura
     valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
     data = pd.DataFrame({"valores": valores})
+
+    xmin = data["valores"].min()
+    xmax = data["valores"].max()
+    bin_size = (xmax - xmin) / bins if bins and bins > 0 else (xmax - xmin or 1)
+
     fig = px.histogram(
         data,
         x="valores",
-        nbins=bins,
         title=f"Histograma de la dist. uniforme, con {bins} bins y n={n:,}",
     )
+    fig.update_traces(
+        xbins=dict(start=xmin, end=xmax, size=bin_size),
+        marker=dict(line=dict(color="black", width=1))
+    )
 
-    # Ojo: no pises el nombre de la función importada
     tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins)
 
-    # ORDEN correcto: (tabla, mensaje, figura)
-    return tabla_comp, "", fig
+    # NEW: si el trigger fue el botón, generamos la descarga
+    if ctx.triggered_id == "btn_download":
+        download = dcc.send_data_frame(data.to_csv, "uniforme_datos.csv", index=False)
+
+    # Orden de Outputs: (download, tabla, mensaje, figura)
+    return download, tabla_comp, "", fig
