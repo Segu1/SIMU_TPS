@@ -5,22 +5,13 @@ import dash_ag_grid as dag
 def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
     """
     Genera una tabla de frecuencias para un vector de datos.
-    Trunca VISUALMENTE los extremos de los intervalos a `decimales` sin alterar el binning.
+
+    - Sin truncado en etiquetas de intervalos (se muestran tal cual, usando str()).
+    - Si `bins` es int: se construyen bordes con np.linspace(xmin, xmax, bins+1),
+      respetando exactamente xmin, xmax y amplitud uniforme.
+    - Intervalos tipo [izq, der) con include_lowest=True para incluir el mínimo,
+      y el máximo cae en el último intervalo porque el borde final es exactamente xmax.
     """
-
-    def _trunc(x, n):
-        # truncado (no redondeo) a n decimales, preserva signo
-        factor = 10 ** n
-        return np.trunc(x * factor) / factor
-
-    def _fmt_interval(iv: pd.Interval, n: int) -> str:
-        # arma etiqueta con truncado visual según el tipo de cerrado
-        left_br = "[" if iv.closed in ("left", "both") else "("
-        right_br = "]" if iv.closed in ("right", "both") else ")"
-        l = _trunc(iv.left, n)
-        r = _trunc(iv.right, n)
-        # usar formato fijo con n decimales
-        return f"{left_br}{l:.{n}f}, {r:.{n}f}{right_br}"
 
     s = pd.Series(datos).dropna()
     n = len(s)
@@ -34,19 +25,34 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
             style={"height": None, 'width': '100%', 'margin': 'auto'},
         )
 
-    # Bin/categorización
+    # --- Bin/categorización ---
     if bins is not None:
         if isinstance(bins, int):
-            categorias = pd.cut(s, bins=bins, include_lowest=True, right=True)
+            xmin = s.min()
+            xmax = s.max()
+
+            if xmin == xmax:
+                categorias = pd.Series([pd.Interval(left=xmin, right=xmax, closed="both")] * n, index=s.index)
+            else:
+                edges = np.linspace(xmin, xmax, bins + 1)
+                # ⚠️ mover SOLO el último borde para incluir xmax
+                edges[-1] = np.nextafter(edges[-1], np.inf)
+                categorias = pd.cut(s, bins=edges, include_lowest=True, right=False)
+
         else:
-            categorias = pd.cut(s, bins=bins, include_lowest=True, right=True)
+            edges = np.array(bins, dtype=float)
+            # ⚠️ también en este caso: mover SOLO el último borde
+            edges[-1] = np.nextafter(edges[-1], np.inf)
+            categorias = pd.cut(s, bins=edges, include_lowest=True, right=False)
 
         frec = categorias.value_counts(sort=False)
 
-        # etiquetas SOLO visuales con truncado
-        indice = [ _fmt_interval(iv, decimales) for iv in frec.index ]
+        # Etiquetas sin truncado/round: usamos str() del Interval
+        indice = [str(iv) for iv in frec.index]
         header_valor = "Intervalo"
+
     else:
+        # Categórico/numérico sin binning: valores exactos
         frec = s.value_counts()
         if ordenar == "asc":
             frec = frec.sort_index()
@@ -55,6 +61,7 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
         indice = frec.index.astype(str).tolist()
         header_valor = "Valor"
 
+    # --- Métricas ---
     fr = frec / n
     porc = fr * 100.0
     fac = frec.cumsum()
@@ -69,8 +76,9 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
         "Porcentaje Acumulado": pac.values
     })
 
+    # --- Definición de columnas para AG Grid ---
     columnas = [
-        {'field': header_valor, 'headerName': header_valor, 'width': 220},
+        {'field': header_valor, 'headerName': header_valor, 'width': 260},
         {'field': 'Frecuencia', 'headerName': 'Frecuencia', 'width': 120,
          'valueFormatter': {"function": """d3.format(",d")(params.value)"""}
         },
@@ -83,7 +91,7 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
         {'field': 'Frecuencia Acumulada', 'headerName': 'Frec. Acum.', 'width': 130,
          'valueFormatter': {"function": """d3.format(",d")(params.value)"""}
         },
-        {'field': 'Porcentaje Acumulado', 'headerName': '% Acum.', 'width': 120,
+        {'field': 'Porcentaje Acumulado', 'headerName': '% Acum.', 'width': 130,
          'valueFormatter': {"function": f"""d3.format(",.{decimales}f")(params.value)"""}
         },
     ]
