@@ -37,7 +37,7 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4):
                 edges = np.linspace(xmin, xmax, bins + 1)
                 # ⚠️ mover SOLO el último borde para incluir xmax
                 edges[-1] = np.nextafter(edges[-1], np.inf)
-                categorias = pd.cut(s, bins=edges, include_lowest=True, right=False)
+                categorias = pd.cut(s, bins=edges, include_lowest=True, right=False, precision=8)
 
         else:
             edges = np.array(bins, dtype=float)

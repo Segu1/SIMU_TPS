@@ -1,9 +1,10 @@
 import dash
-from dash import callback, Output, Input, html, dcc, no_update, ctx  # NEW: State, ctx
+from dash import callback, Output, Input, html, dcc, no_update, ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
+import numpy as np
 
 import GeneradorDeDistribuciones
 import GenerarTabla
@@ -49,7 +50,7 @@ B = dbc.InputGroup([
         id="data_input_B",
         type="number",
         step="any",
-        value=1,   # SUGERENCIA: 1 para que A < B por defecto
+        value=1,   # A < B por defecto
         required=True,
         className="mb-2"
     )
@@ -67,19 +68,17 @@ layout = html.Div([
         id="bins-slider",
         min=5, max=25, step=5,
         value=15,
-        marks={i: str(i) for i in range(5, 25, 5)},
+        marks={i: str(i) for i in range(5, 26, 5)},
         className="mb-3"
     ),
     number_of_data,
     A,
     B,
 
-    # NEW: botón de descarga centrado
     html.Div(
         dbc.Button("Descargar CSV", id="btn_download", color="success", className="rounded-pill px-4"),
         className="text-center my-2"
     ),
-
     dcc.Download(id="download_csv_uniforme"),
 
     msj_error,
@@ -90,15 +89,15 @@ layout = html.Div([
 
 @callback(
     Output("download_csv_uniforme", "data"),
-    Output("table", "children", allow_duplicate=True),
-    Output("mensaje_error", "children", allow_duplicate=True),
-    Output("histograma", "figure", allow_duplicate=True),
+    Output("table", "children"),
+    Output("mensaje_error", "children"),
+    Output("histograma", "figure"),
     Input("bins-slider", "value"),
     Input("data_input_A", "value"),
     Input("data_input_B", "value"),
     Input("data_input_n", "value"),
     Input("btn_download", "n_clicks"),
-    prevent_initial_call=True
+    prevent_initial_call=False  # Render inicial
 )
 def update_histogram(bins, a, b, n, n_clicks):
     # Normalizar n
@@ -113,39 +112,48 @@ def update_histogram(bins, a, b, n, n_clicks):
 
     # Validaciones
     if n < 1:
-        msj = "La cantidad de valores debe ser mayor o igual que 1"
-        return download, empty_table, msj, empty_fig
-
+        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
     if a is None or b is None:
         return download, empty_table, "", empty_fig
-
     if a >= b:
-        msj = "B debe ser mayor que A"
-        return download, empty_table, msj, empty_fig
+        return download, empty_table, "B debe ser mayor que A", empty_fig
 
-    # Datos y figura
+    # 1) Datos
     valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
-    data = pd.DataFrame({"valores": valores})
+    df = pd.DataFrame({"valores": valores})
+    s = df["valores"].dropna()
 
-    xmin = data["valores"].min()
-    xmax = data["valores"].max()
-    bin_size = (xmax - xmin) / bins if bins and bins > 0 else (xmax - xmin or 1)
+    # 2) BORDES con rango MUESTRAL (xmin..xmax)
+    xmin = float(s.min())
+    xmax = float(s.max())
 
+    if xmin == xmax:
+        # Todos iguales: fabricamos un intervalo mínimo [xmin, xmin+ε)
+        eps = np.finfo(float).eps
+        edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
+        effective_bins = 1
+    else:
+        edges = np.linspace(xmin, xmax, int(bins) + 1, dtype=float)  # bins+1 bordes ascendentes
+        # Mantener [a,b) pero incluir xmax exacto en el último bin:
+        edges[-1] = np.nextafter(edges[-1], np.inf)
+        effective_bins = int(bins)
+
+    # 3) Tabla con la MISMA malla y mismo cierre [izq, der)
+    tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins=edges)
+
+    # 4) Histograma con la MISMA malla
     fig = px.histogram(
-        data,
-        x="valores",
-        title=f"Histograma de la dist. uniforme, con {bins} bins y n={n:,}",
+        df, x="valores",
+        title=f"Uniforme muestral [{xmin}, {xmax}] con {effective_bins} bins y n={n:,}",
     )
     fig.update_traces(
-        xbins=dict(start=xmin, end=xmax, size=bin_size),
-        marker=dict(line=dict(color="black", width=1))
+        xbins=dict(start=edges[0], end=np.nextafter(edges[-1], np.inf), size=edges[1] - edges[0]),
+        histfunc="count"
     )
 
-    tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins)
+    # 5) Descarga solo si clickeaste el botón
+    if ctx.triggered_id == "btn_download" and n_clicks:
+        download = dcc.send_data_frame(df.to_csv, "uniforme_datos.csv", index=False)
 
-    # NEW: si el trigger fue el botón, generamos la descarga
-    if ctx.triggered_id == "btn_download":
-        download = dcc.send_data_frame(data.to_csv, "uniforme_datos.csv", index=False)
-
-    # Orden de Outputs: (download, tabla, mensaje, figura)
     return download, tabla_comp, "", fig
+
