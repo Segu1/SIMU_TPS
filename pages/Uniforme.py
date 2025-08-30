@@ -68,7 +68,7 @@ layout = html.Div([
         id="bins-slider",
         min=5, max=25, step=5,
         value=15,
-        marks={i: str(i) for i in range(5, 26, 5)},
+        marks={i: str(i) for i in range(5, 25, 5)},
         className="mb-3"
     ),
     number_of_data,
@@ -117,37 +117,49 @@ def update_histogram(bins, a, b, n, n_clicks):
         return download, empty_table, "", empty_fig
     if a >= b:
         return download, empty_table, "B debe ser mayor que A", empty_fig
-
     # 1) Datos
     valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
     df = pd.DataFrame({"valores": valores})
     s = df["valores"].dropna()
 
-    # 2) BORDES con rango MUESTRAL (xmin..xmax)
+    # 2) Bordes muestrales
     xmin = float(s.min())
     xmax = float(s.max())
 
     if xmin == xmax:
-        # Todos iguales: fabricamos un intervalo mínimo [xmin, xmin+ε)
         eps = np.finfo(float).eps
         edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
         effective_bins = 1
     else:
-        edges = np.linspace(xmin, xmax, int(bins) + 1, dtype=float)  # bins+1 bordes ascendentes
-        # Mantener [a,b) pero incluir xmax exacto en el último bin:
-        edges[-1] = np.nextafter(edges[-1], np.inf)
         effective_bins = int(bins)
+        edges = np.linspace(xmin, xmax, effective_bins + 1, dtype=float)
+        # abrimos SOLO el último borde para la tabla/corte
+        edges[-1] = np.nextafter(edges[-1], np.inf)
+        print("Edges: ", edges)
 
-    # 3) Tabla con la MISMA malla y mismo cierre [izq, der)
+    # 3) Tabla (misma malla y cierre)
     tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins=edges)
 
-    # 4) Histograma con la MISMA malla
+    # 4) Histograma (alinear 'end' para evitar recorte interno de Plotly)
+    bin_size = edges[1] - edges[0]
+    print("Bin size: ", bin_size)
+    start = edges[0]
+    # ¡OJO! No uses edges[-1] directo porque ya lo abriste con nextafter
+    # y puede no ser múltiplo exacto de bin_size. En su lugar:
+    end_aligned = start + (bin_size * effective_bins)
+    end_aligned = np.nextafter(end_aligned, np.inf)  # ahora sí, abrí apenas el final
+    print('End aligned: ', end_aligned)
+    print('Max: ', max(valores))
+    print('Min:', min(valores))
+    end_inclusive = np.nextafter(end_aligned, np.inf)
+
     fig = px.histogram(
-        df, x="valores",
+        df,
+        x="valores",
         title=f"Uniforme muestral [{xmin}, {xmax}] con {effective_bins} bins y n={n:,}",
     )
     fig.update_traces(
-        xbins=dict(start=edges[0], end=np.nextafter(edges[-1], np.inf), size=edges[1] - edges[0]),
+        xbins=dict(start=start, end=end_aligned + np_inclusive, size=bin_size),
         histfunc="count"
     )
 
