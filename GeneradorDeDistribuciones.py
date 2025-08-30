@@ -8,6 +8,5 @@ def generar_uniforme(a, b, n):
         rnd = (math.trunc(random.random() * 10000) / 10000)
         x = a + (rnd * (b - a))
         numbers.append(x)
-    print(len(numbers))
     return numbers
 

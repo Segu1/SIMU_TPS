@@ -57,7 +57,10 @@ div = html.Div(id="table")
 
 
 layout = html.Div([
-    html.H1("Distribución uniforme"),
+    html.H1(
+        "Distribución uniforme",
+        className="text-center pb-2 bg-primary text-white rounded-pill w-50 mx-auto d-block"
+    ),
     dcc.Slider(
         id="bins-slider",
         min=5, max=25, step=5,
