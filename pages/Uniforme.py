@@ -117,6 +117,7 @@ def update_histogram(bins, a, b, n, n_clicks):
         return download, empty_table, "", empty_fig
     if a >= b:
         return download, empty_table, "B debe ser mayor que A", empty_fig
+
     # 1) Datos
     valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
     df = pd.DataFrame({"valores": valores})
@@ -127,40 +128,48 @@ def update_histogram(bins, a, b, n, n_clicks):
     xmax = float(s.max())
 
     if xmin == xmax:
+        # caso degenerado: un solo valor
         eps = np.finfo(float).eps
         edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
         effective_bins = 1
     else:
         effective_bins = int(bins)
         edges = np.linspace(xmin, xmax, effective_bins + 1, dtype=float)
-        # abrimos SOLO el último borde para la tabla/corte
+        # Abrimos SOLO el último borde (lo volvemos estrictamente mayor)
         edges[-1] = np.nextafter(edges[-1], np.inf)
-        print("Edges: ", edges)
 
     # 3) Tabla (misma malla y cierre)
     tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins=edges)
 
-    # 4) Histograma (alinear 'end' para evitar recorte interno de Plotly)
-    bin_size = edges[1] - edges[0]
-    print("Bin size: ", bin_size)
-    start = edges[0]
-    # ¡OJO! No uses edges[-1] directo porque ya lo abriste con nextafter
-    # y puede no ser múltiplo exacto de bin_size. En su lugar:
-    end_aligned = start + (bin_size * effective_bins)
-    end_aligned = np.nextafter(end_aligned, np.inf)  # ahora sí, abrí apenas el final
-    print('End aligned: ', end_aligned)
-    print('Max: ', max(valores))
-    print('Min:', min(valores))
-    end_inclusive = np.nextafter(end_aligned, np.inf)
+    # 4) Histograma con hover detallado (intervalo + frecuencia)
+    counts, _ = np.histogram(s.to_numpy(), bins=edges)
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    widths = np.diff(edges)
 
-    fig = px.histogram(
-        df,
-        x="valores",
-        title=f"Uniforme muestral [{xmin}, {xmax}] con {effective_bins} bins y n={n:,}",
+    # Mostrar el límite superior "real" en el último bin (cerrado a derecha)
+    display_rights = edges[1:].copy()
+    display_rights[-1] = xmax  # evita mostrar el nextafter
+
+    # Preparamos textos de hover: [a,b) ... y el último [a,b]
+    hover_text = [
+        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>"
+        f"Frecuencia: {c:,d}"
+        for i, (l, r, c) in enumerate(zip(edges[:-1], display_rights, counts))
+    ]
+
+    fig = go.Figure()
+    fig.add_bar(
+        x=centers,
+        y=counts,
+        width=widths,
+        name="Frecuencia",
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
     )
-    fig.update_traces(
-        xbins=dict(start=start, end=end_aligned + np_inclusive, size=bin_size),
-        histfunc="count"
+    fig.update_layout(
+        title=f"Uniforme muestral [{xmin}, {xmax}] con {effective_bins} bins y n={n:,}",
+        xaxis_title="valores",
+        yaxis_title="Frecuencia",
     )
 
     # 5) Descarga solo si clickeaste el botón
