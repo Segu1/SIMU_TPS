@@ -91,48 +91,96 @@ layout = html.Div([
     Input("data_input_media", "value"),
     Input("data_input_desv_estandar", "value"),
     Input("data_input_n_normal", "value"),
-    Input("btn_download_normal", "n_clicks"),   # <-- ESCUCHÁ EL BOTÓN
-    prevent_initial_call=True           # opcional: render inicial
+    Input("btn_download_normal", "n_clicks"),
+    prevent_initial_call=True
 )
-def update_histogram(bins, media, desv_estandar, n, n_clicks):
-    # Normalizar n
+def update_histogram(bins, mu, sigma, n, n_clicks):
+    import numpy as np
+
+    empty_fig = go.Figure()
+    empty_table = []
+    download = no_update
+
+    # --- Validate inputs ---
     try:
         n = int(n)
     except (TypeError, ValueError):
         n = 0
-
-    empty_fig = go.Figure()
-    empty_table = []
-    download = no_update  # por defecto NO descargamos
-
-    # Validaciones (devolvé SIEMPRE 4 valores en el mismo orden)
     if n < 1:
-        msj = "La cantidad de valores debe ser mayor o igual que 1"
-        return download, empty_table, msj, empty_fig
+        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
 
-    if media is None or desv_estandar is None:
+    if mu is None or sigma is None:
         return download, empty_table, "", empty_fig
+    try:
+        mu = float(mu); sigma = float(sigma)
+    except (TypeError, ValueError):
+        return download, empty_table, "Media y desviación deben ser numéricos", empty_fig
+    if sigma <= 0:
+        return download, empty_table, "La desviación estándar debe ser mayor que 0", empty_fig
 
-    if desv_estandar <= 0:
-        msj = "La desviación estándar debe ser mayor que 0"
-        return download, empty_table, msj, empty_fig
+    try:
+        B = int(bins)
+    except (TypeError, ValueError):
+        B = 15
+    B = max(5, min(25, B))
 
-    # Datos y figura
-    valores = GeneradorDeDistribuciones.generar_normal(media, desv_estandar, n)
-    data = pd.DataFrame({"valores": valores})
+    # --- Data ---
+    try:
+        valores = GeneradorDeDistribuciones.generar_normal(mu, sigma, n)
+    except Exception:
+        valores = np.random.normal(loc=mu, scale=sigma, size=n)
 
-    fig = px.histogram(
-        data,
-        x="valores",
-        nbins=bins,
-        title=f"Histograma de la dist. normal, con {bins} intervalos, media {media}, "
-              f"desviación estándar {desv_estandar} y n={n:,} datos",
+    df = pd.DataFrame({"valores": valores})
+    s = df["valores"].dropna()
+
+    # --- Bin edges with last bin closed (include xmax) ---
+    xmin = float(s.min()); xmax = float(s.max())
+
+    if xmin == xmax:
+        eps = np.finfo(float).eps
+        edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
+        B = 1
+    else:
+        edges = np.linspace(xmin, xmax, B + 1, dtype=float)
+        # tiny nudge so the last edge is strictly greater (numpy.histogram closes last bin)
+        edges[-1] = np.nextafter(edges[-1], np.inf)
+
+    # --- Frequency table using same edges (visual truncation to 4 decimals) ---
+    tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins=edges, decimales=4)
+
+    # --- Histogram bars with hover (interval + frequency) ---
+    counts, _ = np.histogram(s.to_numpy(), bins=edges)
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    widths  = np.diff(edges)
+
+    # show real xmax (not nextafter) in hover for last bin
+    display_rights = edges[1:].copy()
+    display_rights[-1] = xmax
+
+    hover_text = [
+        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>"
+        f"Frecuencia: {c:,d}"
+        for i, (l, r, c) in enumerate(zip(edges[:-1], display_rights, counts))
+    ]
+
+    fig = go.Figure()
+    fig.add_bar(
+        x=centers,
+        y=counts,
+        width=widths,
+        name="Frecuencia",
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
+    )
+    fig.update_layout(
+        title=(f"Histograma de la dist. normal — {B} intervalos, "
+               f"media={mu}, σ={sigma}, n={n:,}"),
+        xaxis_title="valores",
+        yaxis_title="Frecuencia"
     )
 
-    tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins)
-
-    # Disparar descarga SOLO si el trigger fue el botón
+    # --- Download CSV when button clicked ---
     if dash.ctx.triggered_id == "btn_download_normal" and n_clicks:
-        download = dcc.send_data_frame(data.to_csv, "normal_datos.csv", index=False)
+        download = dcc.send_data_frame(df.to_csv, "normal_datos.csv", index=False)
 
     return download, tabla_comp, "", fig
