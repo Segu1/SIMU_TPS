@@ -188,21 +188,17 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         xaxis_title="valores",
         yaxis_title="Frecuencia"
     )
-
-    # --- Download CSV when button clicked ---
+    # --- Descarga CSV ---
     if dash.ctx.triggered_id == "btn_download_normal" and n_clicks:
-        # Truncar SOLO la columna 'valores' a 4 decimales
-        df_trunc = df.copy()
-        df_trunc["valores"] = df_trunc["valores"].apply(lambda v: truncar(v, 4))
-
         download = dcc.send_data_frame(
-            df_trunc.to_csv,
+            df.to_csv,
             "normal_datos.csv",
             index=False,
             sep=";",        # ; para que Excel en español abra bien
             decimal=",",    # coma decimal
             encoding="utf-8-sig"
         )
+
 
 
     return download, tabla_comp, "", fig
