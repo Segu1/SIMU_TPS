@@ -174,7 +174,13 @@ def update_histogram(bins, a, b, n, n_clicks):
 
     # 5) Descarga solo si clickeaste el botón
     if ctx.triggered_id == "btn_download" and n_clicks:
-        download = dcc.send_data_frame(df.to_csv, "uniforme_datos.csv", index=False)
+        download = dcc.send_data_frame(
+            df.to_csv, 
+            "uniforme_datos.csv", 
+            index=False,
+            sep=";",        # ; para que Excel en español abra bien
+            decimal=",",    # coma decimal
+            encoding="utf-8-sig")
 
     return download, tabla_comp, "", fig
 

@@ -156,6 +156,13 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks):
 
     # --- Descarga CSV ---
     if dash.ctx.triggered_id == "btn_download_exponencial" and n_clicks:
-        download = dcc.send_data_frame(df.to_csv, "exponencial_datos.csv", index=False)
+        download = dcc.send_data_frame(
+            df.to_csv, 
+            "exponencial_datos.csv", 
+            index=False,
+            sep=";",        # ; para que Excel en español abra bien
+            decimal=",",    # coma decimal
+            encoding="utf-8-sig"
+            )
 
     return download, tabla_comp, "", fig

@@ -82,6 +82,12 @@ layout = html.Div([
     div
 ], className="p-3")
 
+import numpy as np
+
+def truncar(x, decimales=4):
+    factor = 10.0 ** decimales
+    return np.trunc(x * factor) / factor
+
 @callback(
     Output("download_csv_normal", "data"),
     Output("table", "children", allow_duplicate=True),
@@ -129,6 +135,10 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         valores = GeneradorDeDistribuciones.generar_normal(mu, sigma, n)
     except Exception:
         valores = np.random.normal(loc=mu, scale=sigma, size=n)
+
+    #print("Primeros 10 valores generados:", valores[:10])
+    #print("Media real:", np.mean(valores))
+    #print("Desv. estándar real:", np.std(valores))
 
     df = pd.DataFrame({"valores": valores})
     s = df["valores"].dropna()
@@ -178,9 +188,17 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         xaxis_title="valores",
         yaxis_title="Frecuencia"
     )
-
-    # --- Download CSV when button clicked ---
+    # --- Descarga CSV ---
     if dash.ctx.triggered_id == "btn_download_normal" and n_clicks:
-        download = dcc.send_data_frame(df.to_csv, "normal_datos.csv", index=False)
+        download = dcc.send_data_frame(
+            df.to_csv,
+            "normal_datos.csv",
+            index=False,
+            sep=";",        # ; para que Excel en español abra bien
+            decimal=",",    # coma decimal
+            encoding="utf-8-sig"
+        )
+
+
 
     return download, tabla_comp, "", fig
