@@ -1,6 +1,7 @@
 import dash
 from dash import Dash, html
 import dash_bootstrap_components as dbc
+from component import Navbar
 
 app = Dash(
     __name__,
@@ -16,10 +17,11 @@ app = Dash(
 server = app.server  # útil para gunicorn/uwsgi
 
 app.layout = html.Div([
+    Navbar.navbar(),
     dash.page_container  # renderiza la página activa
 ])
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False, port=8067)
 
 
