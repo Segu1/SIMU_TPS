@@ -5,9 +5,9 @@ import dash_ag_grid as dag
 def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4, return_df=False):
     """
     Tabla de frecuencias con columnas:
-    - Intervalo # (1..k)
-    - Límite inferior [ (cerrado)
-    - Límite superior ) (abierto)
+    - Intervalo (1..k)
+    - Limite inferior [ (cerrado)
+    - Limite superior ) (abierto)
     - Frecuencia observada
 
     Si bins es int: usa bordes uniformes entre min y max con intervalos [izq, der).
@@ -113,4 +113,3 @@ def tabla_frecuencia(datos, bins=None, ordenar="asc", decimales=4, return_df=Fal
     )
 
     return (tabla, df) if return_df else tabla
-

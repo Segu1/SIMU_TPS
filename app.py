@@ -8,11 +8,14 @@ app = Dash(
     title="TP 2",
     external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
     use_pages=True,
-    pages_folder="pages",  # debe existir y contener tus módulos de página
+    pages_folder="pages",
     requests_pathname_prefix="/distribuciones/",
     routes_pathname_prefix="/distribuciones/",
     suppress_callback_exceptions=True
 )
+
+# 👇 Permite callbacks duplicados entre páginas con allow_duplicate
+app.config.prevent_initial_callbacks = "initial_duplicate"
 
 server = app.server  # útil para gunicorn/uwsgi
 

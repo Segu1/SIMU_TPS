@@ -1,12 +1,11 @@
 import dash
-from dash import callback, Output, Input, html, dcc, no_update, State
+from dash import callback, Output, Input, html, dcc, no_update, State, ctx
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import GeneradorDeDistribuciones
 import GenerarTabla
 import pandas as pd
 import numpy as np
-from dash import ctx
 
 dash.register_page(
     __name__,
@@ -49,7 +48,7 @@ desv_estandar = dbc.InputGroup([
         type="number",
         step="any",
         min=0,
-        value=0,
+        value=1,
         required=True,
         className="mb-2"
     )
@@ -75,61 +74,90 @@ layout = html.Div([
     desv_estandar,
     html.Div(
         dbc.Button("Descargar datos", id="btn_download_normal_combinado",
-               color="primary", className="rounded-pill px-4"),
-    className="text-center my-2"
-        ),
+                   color="primary", className="rounded-pill px-4"),
+        className="text-center my-2"
+    ),
     dcc.Download(id="download_csv_normal_combinado"),
-    
-    dcc.Store(id="store_normal_df"),  # 👈 cache local del último dataset
-    
+
+    dcc.Store(id="store_normal_df"),
+
     msj_error,
     dcc.Graph(id="histograma", className="inline-block"),
     div
 ], className="p-3")
+
 
 @callback(
     Output("download_csv_normal_combinado", "data"),
     Output("table", "children", allow_duplicate=True),
     Output("mensaje_error", "children", allow_duplicate=True),
     Output("histograma", "figure", allow_duplicate=True),
-    Output("store_normal_df", "data"),           # 👈 guardamos df acá
+    Output("store_normal_df", "data"),
     Input("bins-slider", "value"),
     Input("data_input_media", "value"),
     Input("data_input_desv_estandar", "value"),
     Input("data_input_n_normal", "value"),
     Input("btn_download_normal_combinado", "n_clicks"),
-    State("store_normal_df", "data"), 
-    prevent_initial_call=True
+    State("store_normal_df", "data"),
+    prevent_initial_call="initial_duplicate"
 )
-def update_histogram(bins, mu, sigma, n, n_clicks):
-    import numpy as np
-
+def update_histogram(bins, mu, sigma, n, n_clicks, cached_df):
     empty_fig = go.Figure()
     empty_table = []
     download = no_update
+    store_out = no_update
 
-        store_out = no_update
+    trigger = ctx.triggered_id
 
-    trigger = dash.ctx.triggered_id
-
-    # --- Si el trigger es descargar: NO recalcular, usar cache ---
-    if trigger == "btn_download_normal" and n_clicks:
-        if cached_df is None:
-            return no_update, no_update, "No hay datos generados para descargar.", no_update, no_update
+    # --- Descargar desde cache ---
+    if trigger == "btn_download_normal_combinado" and n_clicks and cached_df is not None:
         df_cached = pd.DataFrame(cached_df)
+        s = df_cached["valores"].dropna()
+        if len(s) == 0:
+            return no_update, empty_table, "No hay datos para descargar.", empty_fig, no_update
+
+        xmin = float(s.min()); xmax = float(s.max())
+        if xmin == xmax:
+            eps = np.finfo(float).eps
+            edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
+            B = 1
+        else:
+            B = int(bins) if bins else 15
+            edges = np.linspace(xmin, xmax, B + 1, dtype=float)
+            edges[-1] = np.nextafter(edges[-1], np.inf)
+
+        _, df_tabla = GenerarTabla.tabla_frecuencia(df_cached["valores"], bins=edges, decimales=4, return_df=True)
+        if len(df_tabla) > 0:
+            df_tabla.loc[df_tabla.index[-1], "Limite superior )"] = round(xmax, 4)
+
+        n_datos, n_tabla = len(df_cached), len(df_tabla)
+        n_max = max(n_datos, n_tabla)
+
+        def pad(col, L):
+            return list(col) + [np.nan] * (L - len(col))
+
+        comb = pd.DataFrame({
+            "Datos": pad(df_cached["valores"], n_max),
+            "": [""] * n_max,
+            "Intervalo": pad(df_tabla.get("Intervalo", []), n_max),
+            "Limite inferior [": pad(df_tabla.get("Limite inferior [", []), n_max),
+            "Limite superior )": pad(df_tabla.get("Limite superior )", []), n_max),
+            "Frecuencia observada": pad(df_tabla.get("Frecuencia observada", []), n_max),
+        })
+
         return dcc.send_data_frame(
-            df_cached.to_csv,
-            "normal_datos.csv",
-            index=False, sep=";", decimal=",", encoding="utf-8-sig"
+            comb.to_csv, "normal_datos.csv",
+            index=False, sep=";", decimal=",", encoding="utf-8-sig",
+            float_format="%.4f", na_rep=""
         ), no_update, "", no_update, no_update
 
-    # --- Validación de entradas (cuando cambian sliders/inputs) ---
+    # --- Validaciones ---
     try:
         n = int(n)
     except (TypeError, ValueError):
         n = 0
     if n < 1:
-        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
+        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig, None
 
     if mu is None or sigma is None:
         return no_update, empty_table, "", empty_fig, None
@@ -146,16 +174,17 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         B = 15
     B = max(5, min(25, B))
 
-    # --- Data ---
+    # --- Datos ---
     try:
         valores = GeneradorDeDistribuciones.generar_normal(mu, sigma, n)
     except Exception:
         valores = np.random.normal(loc=mu, scale=sigma, size=n)
 
     df = pd.DataFrame({"valores": valores})
+    store_out = df.to_dict("records")
     s = df["valores"].dropna()
 
-    # --- Bin edges with last bin closed (include xmax) ---
+    # --- Bines ---
     xmin = float(s.min()); xmax = float(s.max())
     if xmin == xmax:
         eps = np.finfo(float).eps
@@ -163,18 +192,14 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         B = 1
     else:
         edges = np.linspace(xmin, xmax, B + 1, dtype=float)
-        # tiny nudge so the last edge is strictly greater (numpy.histogram closes last bin)
         edges[-1] = np.nextafter(edges[-1], np.inf)
 
-    # --- Frequency table using same edges (visual truncation to 4 decimals) ---
+    # --- Tabla ---
     tabla_comp, df_tabla = GenerarTabla.tabla_frecuencia(valores, bins=edges, decimales=4, return_df=True)
-    
-    # Ajuste estético: último límite superior = xmax real
-    df_tabla = df_tabla.copy()
     if len(df_tabla) > 0:
         df_tabla.loc[df_tabla.index[-1], "Limite superior )"] = round(xmax, 4)
 
-    # --- Histogram bars with hover (interval + frequency) ---
+    # --- Histograma ---
     counts, _ = np.histogram(s.to_numpy(), bins=edges)
     centers = (edges[:-1] + edges[1:]) / 2.0
     widths  = np.diff(edges)
@@ -189,12 +214,8 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
 
     fig = go.Figure()
     fig.add_bar(
-        x=centers,
-        y=counts,
-        width=widths,
-        name="Frecuencia",
-        text=hover_text,
-        hovertemplate="%{text}<extra></extra>",
+        x=centers, y=counts, width=widths, name="Frecuencia",
+        text=hover_text, hovertemplate="%{text}<extra></extra>"
     )
     fig.update_layout(
         title=(f"Histograma de la dist. normal — {B} intervalos, "
@@ -202,15 +223,14 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         xaxis_title="valores",
         yaxis_title="Frecuencia"
     )
-    # Descarga combinada
-    if ctx.triggered_id == "btn_download_normal_combinado" and n_clicks:
+
+    # --- Export (sin cache previo) ---
+    if trigger == "btn_download_normal_combinado" and n_clicks:
         n_datos, n_tabla = len(df), len(df_tabla)
         n_max = max(n_datos, n_tabla)
 
-        def pad(col, length):
-            lst = list(col)
-            lst += [np.nan] * (length - len(lst))
-            return lst
+        def pad(col, L):
+            return list(col) + [np.nan] * (L - len(col))
 
         comb = pd.DataFrame({
             "Datos": pad(df["valores"], n_max),
@@ -222,8 +242,7 @@ def update_histogram(bins, mu, sigma, n, n_clicks):
         })
 
         download = dcc.send_data_frame(
-            comb.to_csv,
-            "normal_datos.csv",
+            comb.to_csv, "normal_datos.csv",
             index=False, sep=";", decimal=",", encoding="utf-8-sig",
             float_format="%.4f", na_rep=""
         )
