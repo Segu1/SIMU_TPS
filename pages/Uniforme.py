@@ -1,11 +1,10 @@
 import dash
-from dash import callback, Output, Input, html, dcc, no_update, ctx
+from dash import callback, Output, Input, html, dcc, no_update, ctx, State
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
-
 import GeneradorDeDistribuciones
 import GenerarTabla
 
@@ -68,7 +67,7 @@ layout = html.Div([
         id="bins-slider",
         min=5, max=25, step=5,
         value=15,
-        marks={i: str(i) for i in range(5, 25, 5)},
+        marks={i: str(i) for i in range(5, 26, 5)},  # 5..25
         className="mb-3"
     ),
     number_of_data,
@@ -81,6 +80,8 @@ layout = html.Div([
     className="text-center my-2"
     ),
     dcc.Download(id="download_csv_uniforme_combinado"),
+    
+    dcc.Store(id="store_uniforme_df"),  # 👈 cache del último dataset
 
     msj_error,
     dcc.Graph(id="histograma", className="inline-block"),
@@ -89,18 +90,36 @@ layout = html.Div([
 
 @callback(
     Output("download_csv_uniforme_combinado", "data"),
-    Output("table", "children"),
-    Output("mensaje_error", "children"),
-    Output("histograma", "figure"),
+    Output("table", "children", allow_duplicate=True),
+    Output("mensaje_error", "children", allow_duplicate=True),
+    Output("histograma", "figure", allow_duplicate=True),
+    Output("store_uniforme_df", "data"),   # 👈 guardamos df aquí
     Input("bins-slider", "value"),
     Input("data_input_A", "value"),
     Input("data_input_B", "value"),
     Input("data_input_n", "value"),
     Input("btn_download_combinado", "n_clicks"),
-    prevent_initial_call=False
+    State("store_uniforme_df", "data"),
+    prevent_initial_call=False  # Render inicial
 )
-def update_histogram(bins, a, b, n, n_clicks_comb):
-    # Normalizar n
+def update_histogram(bins, a, b, n, n_clicks, cached_df):
+    empty_fig = go.Figure()
+    empty_table = []
+    download = no_update
+    store_out = no_update
+
+    # Si el trigger es el botón de descarga → NO recalcular
+    if ctx.triggered_id == "btn_download" and n_clicks:
+        if cached_df is None:
+            return no_update, no_update, "No hay datos generados para descargar.", no_update, no_update
+        df_cached = pd.DataFrame(cached_df)
+        return dcc.send_data_frame(
+            df_cached.to_csv,
+            "uniforme_datos.csv",
+            index=False, sep=";", decimal=",", encoding="utf-8-sig"
+        ), no_update, "", no_update, no_update
+
+    # --- Validaciones (cuando cambian sliders/inputs) ---
     try:
         n = int(n)
     except (TypeError, ValueError):
@@ -108,63 +127,79 @@ def update_histogram(bins, a, b, n, n_clicks_comb):
 
     empty_fig = go.Figure()
     empty_table = []
-    download_combinado = no_update
+    download = no_update  # por defecto NO descargamos
 
     # Validaciones
     if n < 1:
-        return download_combinado, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
+        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
     if a is None or b is None:
-        return download_combinado, empty_table, "", empty_fig
+        return download, empty_table, "", empty_fig, None
     if a >= b:
-        return download_combinado, empty_table, "B debe ser mayor que A", empty_fig
+        return download, empty_table, "B debe ser mayor que A", empty_fig
 
-    # 1) Datos
-    valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
+    try:
+        B = int(bins)
+    except (TypeError, ValueError):
+        B = 15
+    B = max(5, min(25, B))
+
+    # --- Datos (recalcular) ---
+    try:
+        valores = GeneradorDeDistribuciones.generar_uniforme(a, b, n)
+    except Exception:
+        valores = np.random.uniform(low=a, high=b, size=n)
+
     df = pd.DataFrame({"valores": valores})
     s = df["valores"].dropna()
 
-    # 2) Bordes muestrales (misma malla para histo y tabla)
+    # 2) Bordes muestrales
     xmin = float(s.min())
     xmax = float(s.max())
-
     if xmin == xmax:
         eps = np.finfo(float).eps
         edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
-        effective_bins = 1
+        B = 1
     else:
         effective_bins = int(bins)
         edges = np.linspace(xmin, xmax, effective_bins + 1, dtype=float)
+        # Abrimos SOLO el último borde (lo volvemos estrictamente mayor)
         edges[-1] = np.nextafter(edges[-1], np.inf)
 
-    # 3) Tabla de frecuencias (grid + df para exportar)
+    # 3) Tabla (misma malla y cierre)
     tabla_comp, df_tabla = GenerarTabla.tabla_frecuencia(valores, bins=edges, return_df=True)
 
     # Opcional estético: el último límite superior que se vea como xmax real
     df_tabla = df_tabla.copy()
     if len(df_tabla) > 0:
         df_tabla.loc[df_tabla.index[-1], "Limite superior )"] = round(xmax, 4)
-
-    # 4) Histograma
+    
+    # 4) Histograma con hover detallado (intervalo + frecuencia)
     counts, _ = np.histogram(s.to_numpy(), bins=edges)
     centers = (edges[:-1] + edges[1:]) / 2.0
-    widths = np.diff(edges)
+    widths  = np.diff(edges)
 
     display_rights = edges[1:].copy()
-    display_rights[-1] = xmax  # último cerrado a derecha
+    display_rights[-1] = xmax  # evita mostrar el nextafter
 
     hover_text = [
-        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>Frecuencia: {c:,d}"
+        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>"
+        f"Frecuencia: {int(c):,d}"
         for i, (l, r, c) in enumerate(zip(edges[:-1], display_rights, counts))
     ]
 
     fig = go.Figure()
     fig.add_bar(
-        x=centers, y=counts, width=widths, name="Frecuencia",
-        text=hover_text, hovertemplate="%{text}<extra></extra>",
+        x=centers,
+        y=counts,
+        width=widths,
+        name="Frecuencia",
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
     )
     fig.update_layout(
         title=f"Uniforme muestral [{xmin}, {xmax}] con {effective_bins} bins y n={n:,}",
-        xaxis_title="valores", yaxis_title="Frecuencia",
+        xaxis_title="valores",
+        yaxis_title="Frecuencia",
     )
 
     # 5) Exportar combinado (Datos | col vacía | Tabla)
@@ -201,5 +236,4 @@ def update_histogram(bins, a, b, n, n_clicks_comb):
         )
 
     return download_combinado, tabla_comp, "", fig
-
 
