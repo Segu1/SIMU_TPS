@@ -235,5 +235,5 @@ def update_histogram(bins, a, b, n, n_clicks, cached_df):
             na_rep=""  # celdas vacías limpias
         )
 
-    return download_combinado, tabla_comp, "", fig
+    return download_combinado, tabla_comp, "", fig, store_out
 

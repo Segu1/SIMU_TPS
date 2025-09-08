@@ -57,20 +57,12 @@ layout = html.Div([
     number_of_data,
     lambdan,
     html.Div(
-<<<<<<< HEAD
-    dbc.Button("Descargar datos", id="btn_download_exponencial_combinado",
+        dbc.Button("Descargar datos", id="btn_download_exponencial_combinado",
                color="primary", className="rounded-pill px-4"),
     className="text-center my-2"
         ),
     dcc.Download(id="download_csv_exponencial_combinado"),
-    
-=======
-        dbc.Button("Descargar CSV", id="btn_download_exponencial", color="success", className="rounded-pill px-4"),
-        className="text-center my-2"
-    ),
-    dcc.Download(id="download_csv_exponencial"),
     dcc.Store(id="store_exponencial_df"),   # 👈 agregado aquí
->>>>>>> main
     msj_error,
     dcc.Graph(id="histograma_exponencial", className="inline-block"),
     div
@@ -88,12 +80,8 @@ from dash import ctx  # si no lo tenés ya importado al inicio
     Input("bins-slider-exponencial", "value"),
     Input("data_input_lambdan_exponencial", "value"),
     Input("data_input_n_exponencial", "value"),
-<<<<<<< HEAD
     Input("btn_download_exponencial_combinado", "n_clicks"),
-=======
-    Input("btn_download_exponencial", "n_clicks"),
-    State("store_exponencial_df", "data"),    # 👈 lo leemos aquí
->>>>>>> main
+    State("store_exponencial_df", "data"), 
     prevent_initial_call=True
 )
 def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
@@ -101,11 +89,9 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
     empty_fig = go.Figure()
     empty_table = []
     download = no_update
+
     store_out = no_update  # por defecto no sobrescribimos
 
-<<<<<<< HEAD
-    # Validaciones
-=======
     trigger = dash.ctx.triggered_id
 
     # --- Caso: click en descargar ---
@@ -120,26 +106,17 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
         ), no_update, "", no_update, no_update
 
     # --- Caso: sliders/inputs cambian -> recalculamos ---
->>>>>>> main
     try:
         n = int(n)
     except (TypeError, ValueError):
         n = 0
     if n < 1:
-<<<<<<< HEAD
-        return download, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
-=======
-        return no_update, empty_table, "La cantidad de valores debe ser ≥ 1", empty_fig, None
+        return no_update, empty_table, "La cantidad de valores debe ser mayor o igual que 1", empty_fig
 
->>>>>>> main
     if lambdan is None or lambdan <= 0:
         return no_update, empty_table, "Lambda debe ser mayor que 0", empty_fig, None
 
-<<<<<<< HEAD
-    # Datos
-=======
-    # Generamos valores
->>>>>>> main
+    # --- Datos ---
     try:
         valores = GeneradorDeDistribuciones.generar_exponencial(lambdan, n)
     except Exception:
@@ -148,13 +125,10 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
     df = pd.DataFrame({"valores": valores})
     s = df["valores"].dropna().to_numpy()
 
-<<<<<<< HEAD
-    # Bordes de bins (último cerrado)
-    xmin = float(np.min(s)); xmax = float(np.max(s))
-=======
-    # Bordes de bins
-    xmin, xmax = float(np.min(s)), float(np.max(s))
->>>>>>> main
+    # --- Bordes de bins (último cerrado) ---
+    xmin = float(np.min(s))
+    xmax = float(np.max(s))
+
     if xmin == xmax:
         eps = np.finfo(float).eps
         edges = np.array([xmin, np.nextafter(xmin + eps, np.inf)], dtype=float)
@@ -163,10 +137,7 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
         xmax_closed = np.nextafter(xmax, np.inf)
         edges = np.linspace(xmin, xmax_closed, int(bins) + 1, dtype=float)
 
-<<<<<<< HEAD
-    # Conteo para figura
-=======
->>>>>>> main
+    # --- Conteo ---
     counts, _ = np.histogram(s, bins=edges)
     centers = (edges[:-1] + edges[1:]) / 2.0
     widths = np.diff(edges)
@@ -174,27 +145,25 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
     display_rights = edges[1:].copy()
     display_rights[-1] = xmax
     hover_text = [
-<<<<<<< HEAD
-        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>Frecuencia: {int(c):,d}"
-=======
-        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts)-1 else ')'}<br>"
+        f"Intervalo: [{l:.4f}, {r:.4f}{']' if i == len(counts) - 1 else ')'}<br>"
         f"Frecuencia: {int(c):,d}"
->>>>>>> main
         for i, (l, r, c) in enumerate(zip(edges[:-1], display_rights, counts))
     ]
 
     fig = go.Figure()
-<<<<<<< HEAD
-    fig.add_bar(x=centers, y=counts, width=widths, name="Frecuencia",
-                text=hover_text, hovertemplate="%{text}<extra></extra>")
+    fig.add_bar(x=centers, y=counts, width=widths, text=hover_text,
+                name="Frecuencia", hovertemplate="%{text}<extra></extra>")
     fig.update_layout(
-        title=(f"Histograma de la dist. exponencial — {bins} intervalos, λ={lambdan}, n={n:,}"),
+        title=f"Histograma exponencial — {bins} intervalos, λ={lambdan}, n={n:,}",
         xaxis_title="valores", yaxis_title="Frecuencia"
     )
 
     # Tabla de frecuencias (grid + DF)
     tabla_comp, df_tabla = GenerarTabla.tabla_frecuencia(valores, bins=edges, decimales=4, return_df=True)
 
+    # Guardamos dataset en el store
+    store_out = df.to_dict(orient="list")
+    
     # Ajuste estético: último límite superior = xmax real
     df_tabla = df_tabla.copy()
     if len(df_tabla) > 0:
@@ -226,20 +195,4 @@ def update_histogram_exponencial(bins, lambdan, n, n_clicks, cached_df):
             float_format="%.4f", na_rep=""
         )
 
-    return download, tabla_comp, "", fig
-=======
-    fig.add_bar(x=centers, y=counts, width=widths, text=hover_text,
-                name="Frecuencia", hovertemplate="%{text}<extra></extra>")
-    fig.update_layout(
-        title=f"Histograma exponencial — {bins} intervalos, λ={lambdan}, n={n:,}",
-        xaxis_title="valores", yaxis_title="Frecuencia"
-    )
-
-    # Tabla
-    tabla_comp = GenerarTabla.tabla_frecuencia(valores, bins=edges, decimales=4)
-
-    # Guardamos dataset en el store
-    store_out = df.to_dict(orient="list")
-
-    return no_update, tabla_comp, "", fig, store_out
->>>>>>> main
+    return download, tabla_comp, "", fig, store_out
